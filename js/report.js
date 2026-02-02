@@ -64,16 +64,76 @@ function buildSummary(r){
   return s;
 }
 
-function downloadJson(r){
-  const blob = new Blob([JSON.stringify(r, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `surokkha-report-${r.id}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+/**
+ * Download report as PDF (requires jsPDF)
+ * Make sure report.html includes:
+ * <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+ * before loading this file.
+ */
+function downloadPdf(r){
+  const { jsPDF } = (window.jspdf || {});
+  if(!jsPDF){
+    toast("PDF library not loaded (jsPDF). Check report.html script.", "danger");
+    return;
+  }
+
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+  const margin = 40;
+  let y = 60;
+
+  // Title
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("Surokkha — Issue Report", margin, y);
+
+  y += 18;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(`Report ID: ${r.id}`, margin, y);
+
+  y += 14;
+  doc.text(`Created: ${new Date(r.createdAt).toLocaleString()}`, margin, y);
+
+  y += 18;
+  doc.setLineWidth(0.6);
+  doc.line(margin, y, W - margin, y);
+  y += 22;
+
+  // helper row printer
+  const printRow = (label, value) => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text(label, margin, y);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(12);
+
+    const text = String(value || "");
+    const wrapped = doc.splitTextToSize(text, W - margin * 2 - 110);
+    doc.text(wrapped, margin + 110, y);
+
+    y += Math.max(18, wrapped.length * 14);
+  };
+
+  printRow("Issue Type:", r.issueType);
+  printRow("Date & Time:", new Date(r.datetime).toLocaleString());
+  printRow("Location:", r.location);
+  printRow("Attachment:", r.attachmentName ? r.attachmentName : "None");
+
+  // Description
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("Description:", margin, y);
+  y += 16;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  const descLines = doc.splitTextToSize(String(r.description || ""), W - margin * 2);
+  doc.text(descLines, margin, y);
+
+  // Save
+  doc.save(`surokkha-report-${r.id}.pdf`);
 }
 
 document.addEventListener("DOMContentLoaded", ()=>{
@@ -109,9 +169,12 @@ document.addEventListener("DOMContentLoaded", ()=>{
     saveReports(reports);
     lastSaved = report;
 
-    qs("#resultText").textContent = `Saved locally with ID ${report.id}. You can download or copy a summary.`;
+    qs("#resultText").textContent = `Saved locally with ID ${report.id}. PDF downloaded. You can also copy a summary.`;
     qs("#result").style.display = "block";
     toast("Report saved ✅");
+
+    // ✅ Auto-download PDF after submit
+    downloadPdf(report);
 
     // reset form (keep datetime)
     qs("#desc").value = "";
@@ -119,9 +182,10 @@ document.addEventListener("DOMContentLoaded", ()=>{
     renderRecent();
   });
 
+  // Keep existing button id, but download PDF now
   qs("#downloadJson").addEventListener("click", ()=>{
     if(!lastSaved) return;
-    downloadJson(lastSaved);
+    downloadPdf(lastSaved);
   });
 
   qs("#copySummary").addEventListener("click", async ()=>{
