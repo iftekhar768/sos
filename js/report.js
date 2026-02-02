@@ -1,6 +1,10 @@
 const STORAGE_KEY = "surokkha_reports_v1";
 let lastSaved = null;
 
+// Keep attachment in memory for PDF download (works in same session)
+let lastAttachmentDataUrl = null;
+let lastAttachmentType = "";
+
 function loadReports(){
   try{
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
@@ -64,13 +68,32 @@ function buildSummary(r){
   return s;
 }
 
+// ---------- PDF HELPERS ----------
+
+function readFileAsDataURL(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = ()=> reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function getImageSize(dataUrl){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=> resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
 /**
- * Download report as PDF (requires jsPDF)
- * Make sure report.html includes:
+ * Download report as PDF and embed image if provided.
+ * Requires jsPDF:
  * <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
- * before loading this file.
  */
-function downloadPdf(r){
+async function downloadPdf(r, attachmentDataUrl = null, attachmentType = ""){
   const { jsPDF } = (window.jspdf || {});
   if(!jsPDF){
     toast("PDF library not loaded (jsPDF). Check report.html script.", "danger");
@@ -78,7 +101,8 @@ function downloadPdf(r){
   }
 
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const W = doc.internal.pageSize.getWidth();
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   const margin = 40;
   let y = 60;
 
@@ -97,10 +121,9 @@ function downloadPdf(r){
 
   y += 18;
   doc.setLineWidth(0.6);
-  doc.line(margin, y, W - margin, y);
+  doc.line(margin, y, pageW - margin, y);
   y += 22;
 
-  // helper row printer
   const printRow = (label, value) => {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
@@ -110,7 +133,7 @@ function downloadPdf(r){
     doc.setFontSize(12);
 
     const text = String(value || "");
-    const wrapped = doc.splitTextToSize(text, W - margin * 2 - 110);
+    const wrapped = doc.splitTextToSize(text, pageW - margin * 2 - 110);
     doc.text(wrapped, margin + 110, y);
 
     y += Math.max(18, wrapped.length * 14);
@@ -129,10 +152,73 @@ function downloadPdf(r){
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
-  const descLines = doc.splitTextToSize(String(r.description || ""), W - margin * 2);
+  const descLines = doc.splitTextToSize(String(r.description || ""), pageW - margin * 2);
   doc.text(descLines, margin, y);
 
-  // Save
+  y += descLines.length * 14 + 18;
+
+  // Embed image (if image attachment)
+  if(attachmentDataUrl && attachmentType && attachmentType.startsWith("image/")){
+    // Ensure enough space, otherwise add new page
+    if (y > pageH - margin - 200) {
+      doc.addPage();
+      y = margin;
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Attached Image:", margin, y);
+    y += 12;
+
+    // Get image dimensions
+    let dim;
+    try {
+      dim = await getImageSize(attachmentDataUrl);
+    } catch (e) {
+      // If image can't be read, skip embed
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.text("(Could not load image preview)", margin, y);
+      doc.save(`surokkha-report-${r.id}.pdf`);
+      return;
+    }
+
+    const maxW = pageW - margin * 2;
+    const maxH = 360; // keep it clean on one page
+
+    let drawW = maxW;
+    let drawH = (dim.h / dim.w) * drawW;
+
+    if(drawH > maxH){
+      drawH = maxH;
+      drawW = (dim.w / dim.h) * drawH;
+    }
+
+    // Center the image horizontally in page content area
+    const x = margin + (maxW - drawW) / 2;
+
+    // Add new page if needed
+    if (y + drawH > pageH - margin) {
+      doc.addPage();
+      y = margin;
+    }
+
+    // Determine format
+    const fmt =
+      attachmentType.includes("png") ? "PNG" :
+      attachmentType.includes("webp") ? "WEBP" :
+      "JPEG";
+
+    // Draw a light border box (optional)
+    doc.setDrawColor(180);
+    doc.rect(x - 2, y - 2, drawW + 4, drawH + 4);
+
+    // Add image
+    doc.addImage(attachmentDataUrl, fmt, x, y, drawW, drawH);
+
+    y += drawH + 14;
+  }
+
   doc.save(`surokkha-report-${r.id}.pdf`);
 }
 
@@ -142,7 +228,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 
   qs("#useMyLoc").addEventListener("click", getMyLocationIntoField);
 
-  qs("#issueForm").addEventListener("submit", (e)=>{
+  qs("#issueForm").addEventListener("submit", async (e)=>{
     e.preventDefault();
 
     const issueType = qs("#issueType").value;
@@ -169,12 +255,28 @@ document.addEventListener("DOMContentLoaded", ()=>{
     saveReports(reports);
     lastSaved = report;
 
+    // Read attachment into memory (for PDF embedding)
+    lastAttachmentDataUrl = null;
+    lastAttachmentType = "";
+
+    if(file){
+      lastAttachmentType = file.type || "";
+      if(lastAttachmentType.startsWith("image/")){
+        try{
+          lastAttachmentDataUrl = await readFileAsDataURL(file);
+        }catch(err){
+          lastAttachmentDataUrl = null;
+          toast("Could not read image file. PDF will download without image.", "danger");
+        }
+      }
+    }
+
     qs("#resultText").textContent = `Saved locally with ID ${report.id}. PDF downloaded. You can also copy a summary.`;
     qs("#result").style.display = "block";
     toast("Report saved ✅");
 
-    // ✅ Auto-download PDF after submit
-    downloadPdf(report);
+    // ✅ Auto-download PDF after submit (with embedded image if available)
+    await downloadPdf(report, lastAttachmentDataUrl, lastAttachmentType);
 
     // reset form (keep datetime)
     qs("#desc").value = "";
@@ -182,10 +284,10 @@ document.addEventListener("DOMContentLoaded", ()=>{
     renderRecent();
   });
 
-  // Keep existing button id, but download PDF now
-  qs("#downloadJson").addEventListener("click", ()=>{
+  // Keep the same button id, but download PDF now
+  qs("#downloadJson").addEventListener("click", async ()=>{
     if(!lastSaved) return;
-    downloadPdf(lastSaved);
+    await downloadPdf(lastSaved, lastAttachmentDataUrl, lastAttachmentType);
   });
 
   qs("#copySummary").addEventListener("click", async ()=>{
