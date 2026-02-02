@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Surokkha — Real Time Tracker</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- Leaflet (OpenStreetMap) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+  <div class="page">
+    <main class="phone" aria-label="Real time tracker">
+      <div class="top-title">
+        <button class="back" type="button" onclick="goBack()" aria-label="Go back">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6" stroke="#0b2e4f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div>
+          <h2>Real Time Tracker</h2>
+          <div class="subtitle">Live location • Map view • Share link</div>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="row">
+          <div class="pill"><span class="dot" id="trkDot"></span> Tracking: <span id="trkStatus">OFF</span></div>
+          <button class="small-btn" type="button" id="btnStart">Start</button>
+        </div>
+
+        <div class="map" id="map" style="margin-top:14px;" aria-label="Map"></div>
+
+        <div class="card" style="margin-top:14px;">
+          <div style="font-weight:1000; margin-bottom:8px;">Location details</div>
+          <div class="help"><b>Latitude:</b> <span id="lat">—</span></div>
+          <div class="help"><b>Longitude:</b> <span id="lng">—</span></div>
+          <div class="help"><b>Accuracy:</b> <span id="accuracy">—</span></div>
+          <div class="help"><b>Updated:</b> <span id="updated">—</span></div>
+          <div class="help"><b>Maps link:</b> <span id="maps">—</span></div>
+
+          <div class="row" style="margin-top:12px; gap:12px;">
+            <button class="primary-btn secondary" type="button" id="copyLink">Copy location link</button>
+            <button class="primary-btn" type="button" id="openMaps">Open in Google Maps</button>
+          </div>
+        </div>
+
+        <div class="notice" style="margin-top:14px;">
+          <b>How it works:</b> Your browser asks permission to access location. If allowed, we keep updating the marker on the map in real time.
+          <div class="help" style="margin-top:6px;">If the map doesn't load, check your internet connection (Leaflet uses online tiles).</div>
+        </div>
+      </section>
+
+      <div class="footer">
+        <small>Privacy: tracking is local and stays on your device in this demo.</small>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="js/tracker.js"></script>
+</body>
+</html>
